@@ -9,239 +9,229 @@ using Unity.Notifications.Android;
 
 using UnityEngine.Advertisements;
 
-public class GameManager : MonoBehaviour, IUnityAdsInitializationListener, IUnityAdsShowListener
+public class GameManager : MonoBehaviour, IUnityAdsInitializationListener, IUnityAdsLoadListener, IUnityAdsShowListener
 {
-    // ========================================================
-    // 1. TEXTOS DE LA PANTALLA
-    // ========================================================
+    // REFERENCIAS A LA UI 
     public TextMeshProUGUI timeText;
     public TextMeshProUGUI clicksText;
     public TextMeshProUGUI highScoreText;
     public GameObject creditsPanel;
 
-    // ========================================================
-    // 2. BOTONES
-    // ========================================================
     public Button mainButton;
     public Button rewardAdButton;
     public Button openCreditsButton;
     public Button closeCreditsButton;
 
-    // ========================================================
-    // 3. VARIABLES DE CONFIGURACIÓN
-    // ========================================================
-    private string androidGameId = "6112478"; 
-    private bool testMode = false; 
+    // CONFIGURACION DE ADS
+    private string androidGameId = "6112478";
+    private bool testMode = true;
 
-    // ========================================================
-    // 4. DATOS DEL JUEGO
-    // ========================================================
-    private int clicks = 0; 
-    private float timeRemaining = 10f; 
-    private bool isPlaying = false; 
-    private int highScore = 0; 
-    private float bonusTime = 0f; 
+    // DATOS DEL JUEGO
+    private int clicks = 0;
+    private float timeRemaining = 10f;
+    private bool isPlaying = false;
+    private int highScore = 0;
+    private float bonusTime = 0f;
+
+ 
+    // UNITY LIFECYCLE
+   
 
     void Start()
     {
-       
-        mainButton.onClick.AddListener(HacerClickEnBotonVerde);
-        openCreditsButton.onClick.AddListener(PrenderOApagarCreditos);
-        closeCreditsButton.onClick.AddListener(PrenderOApagarCreditos);
-        rewardAdButton.onClick.AddListener(MostrarAnuncioConRecompensa);
+        mainButton.onClick.AddListener(OnGreenButtonClick);
+        openCreditsButton.onClick.AddListener(ToggleCredits);
+        closeCreditsButton.onClick.AddListener(ToggleCredits);
+        rewardAdButton.onClick.AddListener(ShowRewardedAd);
 
-     
-        if (Advertisement.isSupported == true && Advertisement.isInitialized == false)
-        {
-            Advertisement.Initialize(androidGameId, testMode, this);
-        }
-
-       
         highScore = PlayerPrefs.GetInt("HighScore", 0);
 
-       
         creditsPanel.SetActive(false);
 
-       
-        ActualizarTextosEnPantalla();
+        UpdateUI();
 
-      
 #if UNITY_WEBGL
         rewardAdButton.gameObject.SetActive(false);
+        Cursor.visible = true;          
+        Cursor.lockState = CursorLockMode.None;  
 #endif
 
-     
 #if UNITY_ANDROID
-        PrepararCanalDeNotificaciones();
+        InitializeAds();
+        AndroidNotificationCenter.RequestPermission();
+        CreateNotificationChannel();
 #endif
     }
 
     void Update()
     {
-      
-       
-        if (isPlaying == true)
+        if (!isPlaying) return;
+
+        timeRemaining -= Time.deltaTime;
+        UpdateUI();
+
+        if (timeRemaining <= 0)
         {
-           
-            timeRemaining = timeRemaining - Time.deltaTime;
-
-            ActualizarTextosEnPantalla();
-
-           
-            if (timeRemaining <= 0)
-            {
-                TerminarElJuego();
-            }
+            EndGame();
         }
     }
 
-    private void HacerClickEnBotonVerde()
+
+    // GAME LOGIC
+   
+    private void OnGreenButtonClick()
     {
-      
-        if (isPlaying == false)
+        if (!isPlaying)
         {
-            isPlaying = true; 
-            clicks = 1; 
-
-        
+           
+            isPlaying = true;
+            clicks = 1;
             timeRemaining = 10f + bonusTime;
-            bonusTime = 0f; 
-
-          
+            bonusTime = 0f;
             rewardAdButton.interactable = false;
         }
-       
         else
         {
-            clicks = clicks + 1;
+            
+            clicks++;
         }
 
-        ActualizarTextosEnPantalla();
+        UpdateUI();
     }
 
-    private void TerminarElJuego()
+    private void EndGame()
     {
-        isPlaying = false; 
-        timeRemaining = 0; 
+        isPlaying = false;
+        timeRemaining = 0;
 
-       
         if (clicks > highScore)
         {
+           
             highScore = clicks;
-            PlayerPrefs.SetInt("HighScore", highScore); 
+            PlayerPrefs.SetInt("HighScore", highScore);
             PlayerPrefs.Save();
         }
         else
         {
            
-            MostrarAnuncioPantallaCompleta();
+            ShowInterstitialAd();
         }
 
-      
         rewardAdButton.interactable = true;
-        ActualizarTextosEnPantalla();
+        UpdateUI();
 
-        
 #if UNITY_ANDROID
-        MandarNotificacionAlCelular();
+        ScheduleNotification();
 #endif
     }
 
-    private void ActualizarTextosEnPantalla()
+    private void UpdateUI()
     {
-       
-        int segundos = Mathf.FloorToInt(timeRemaining);
-        int centesimas = Mathf.FloorToInt((timeRemaining % 1) * 100);
+        int seconds = Mathf.FloorToInt(timeRemaining);
+        int centiseconds = Mathf.FloorToInt((timeRemaining % 1) * 100);
 
- 
-        timeText.text = "Tiempo: " + segundos.ToString("00") + ":" + centesimas.ToString("00");
+        timeText.text = "Tiempo: " + seconds.ToString("00") + ":" + centiseconds.ToString("00");
         clicksText.text = clicks.ToString("00") + " clicks";
         highScoreText.text = "High score: " + highScore;
     }
 
-    private void PrenderOApagarCreditos()
+    private void ToggleCredits()
     {
-       
-        bool estaPrendido = creditsPanel.activeSelf;
-
-     
-        creditsPanel.SetActive(!estaPrendido);
+        creditsPanel.SetActive(!creditsPanel.activeSelf);
     }
 
+   
+    // ADS
 
-    // =========================================================================
-    // SECCIÓN DE ANUNCIOS Y NOTIFICACIONES
-    // =========================================================================
-
-    private void MostrarAnuncioConRecompensa()
+    private void InitializeAds()
     {
-        Advertisement.Show("Rewarded_Android", this); 
-    }
-
-    private void MostrarAnuncioPantallaCompleta()
-    {
-        Advertisement.Show("Interstitial_Android", this); 
+        if (Advertisement.isSupported && !Advertisement.isInitialized)
+        {
+            Advertisement.Initialize(androidGameId, testMode, this);
+        }
     }
 
     
     public void OnInitializationComplete()
     {
-        
-        Advertisement.Banner.SetPosition(BannerPosition.BOTTOM_CENTER);
+      
+        Advertisement.Load("Interstitial_Android", this);
+        Advertisement.Load("Rewarded_Android", this);
 
-        
+       
+        Advertisement.Banner.SetPosition(BannerPosition.BOTTOM_CENTER);
         Advertisement.Banner.Load("Banner_Android", new BannerLoadOptions
         {
-            loadCallback = () => Advertisement.Banner.Show("Banner_Android")
+            loadCallback = () => Advertisement.Banner.Show("Banner_Android"),
+            errorCallback = (error) => Debug.Log("Banner error: " + error)
         });
     }
 
- 
-    public void OnUnityAdsShowComplete(string placementId, UnityAdsShowCompletionState showCompletionState)
+    private void ShowInterstitialAd()
     {
-        
-        if (placementId == "Rewarded_Android" && showCompletionState == UnityAdsShowCompletionState.COMPLETED)
-        {
-            bonusTime = 2f; 
-            rewardAdButton.interactable = false; 
-        }
+        Advertisement.Show("Interstitial_Android", this);
+    }
+
+    private void ShowRewardedAd()
+    {
+        Advertisement.Show("Rewarded_Android", this);
     }
 
    
-    public void OnInitializationFailed(UnityAdsInitializationError error, string message) { }
+    public void OnUnityAdsShowComplete(string placementId, UnityAdsShowCompletionState showCompletionState)
+    {
+        if (placementId == "Rewarded_Android" && showCompletionState == UnityAdsShowCompletionState.COMPLETED)
+        {
+           
+            bonusTime = 2f;
+            rewardAdButton.interactable = false;
+        }
+    }
+
+ 
+    public void OnUnityAdsAdLoaded(string placementId) { }
+    public void OnUnityAdsFailedToLoad(string placementId, UnityAdsLoadError error, string message)
+    {
+        Debug.Log("Error loading ad " + placementId + ": " + message);
+    }
+
+   
+    public void OnInitializationFailed(UnityAdsInitializationError error, string message)
+    {
+        Debug.Log("Ads initialization error: " + message);
+    }
     public void OnUnityAdsShowFailure(string placementId, UnityAdsShowError error, string message) { }
     public void OnUnityAdsShowStart(string placementId) { }
     public void OnUnityAdsShowClick(string placementId) { }
 
-    // --- NOTIFICACIONES ---
-
-    private void PrepararCanalDeNotificaciones()
+    
+    // NOTIFICATIONS (Android only)
+    
+    private void CreateNotificationChannel()
     {
 #if UNITY_ANDROID
-      
         var channel = new AndroidNotificationChannel()
         {
             Id = "game_channel",
-            Name = "Notificaciones Clicker",
+            Name = "Clicker Notifications",
             Importance = Importance.Default,
-            Description = "Recordatorios",
+            Description = "Reminders to come back and play",
         };
         AndroidNotificationCenter.RegisterNotificationChannel(channel);
 #endif
     }
 
-    private void MandarNotificacionAlCelular()
+    private void ScheduleNotification()
     {
 #if UNITY_ANDROID
-     
-        var notification = new AndroidNotification();
-        notification.Title = "¡Volvé a jugar!";
-        notification.Text = "Juego desarrollado por Agustín Lázaro Blanco Romero";
+        
+        AndroidNotificationCenter.CancelAllScheduledNotifications();
 
-       
+        var notification = new AndroidNotification();
+        notification.Title = "Come back and play!";
+        notification.Text = "Game developed by Agustin Lazaro Blanco Romero";
         notification.FireTime = DateTime.Now.AddMinutes(10);
 
-      
         AndroidNotificationCenter.SendNotification(notification, "game_channel");
 #endif
     }
