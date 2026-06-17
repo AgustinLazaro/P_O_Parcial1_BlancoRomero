@@ -58,7 +58,7 @@ public class GameManager : MonoBehaviour, IUnityAdsInitializationListener, IUnit
 
 #if UNITY_ANDROID
         InitializeAds();
-        AndroidNotificationCenter.RequestPermission();
+        UnityEngine.Android.Permission.RequestUserPermission("android.permission.POST_NOTIFICATIONS");
         CreateNotificationChannel();
 #endif
     }
